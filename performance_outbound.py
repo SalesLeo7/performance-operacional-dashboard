@@ -50,7 +50,6 @@ def calculate_performance(df):
 
     return df
 
-
 # --- UPLOAD ---
 uploaded_file = st.file_uploader("📂 Faça upload do CSV", type=["csv"])
 
