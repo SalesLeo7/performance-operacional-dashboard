@@ -1,13 +1,17 @@
-[project]
 <<<<<<< HEAD
-name = "performance-inbound"
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="Black">
+    <option name="sdkName" value="Python 3.10" />
+  </component>
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.10" project-jdk-type="Python SDK" />
+</project>
 =======
-name = "outbound"
->>>>>>> 9c874a2 (Dados atualizados e filtro de status do transporte atualizado)
-version = "0.1.0"
-requires-python = ">=3.14"
-dependencies = [
-    "pandas>=3.0.2",
-    "plotly>=6.7.0",
-    "streamlit>=1.56.0",
-]
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="Black">
+    <option name="sdkName" value="Python 3.9" />
+  </component>
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.9" project-jdk-type="Python SDK" />
+</project>
+>>>>>>> 9c874a2... Dados atualizados e filtro de status do transporte atualizado
