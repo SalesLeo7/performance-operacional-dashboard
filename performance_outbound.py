@@ -1,73 +1,78 @@
+import streamlit as st
 import pandas as pd
-import os
+
+st.set_page_config(page_title="Performance Outbound OTIF", layout="wide")
+st.title("📊 Performance Outbound OTIF")
 
 
-def calculate_performance(input_file, output_file):
-    print(f"Lendo o arquivo: {input_file}")
-
-    try:
-        # Lendo o CSV com o separador correto
-        df = pd.read_csv(input_file, sep=',', quotechar='"')
-    except Exception as e:
-        print(f"Erro ao ler o arquivo: {e}")
-        return None
-
+def calculate_performance(df):
     # Padronizar nomes das colunas
     df.columns = [col.strip().upper() for col in df.columns]
 
-    # Lista de colunas de data para converter
+    # Lista de colunas de data
     date_cols = ['ORDER_DATE', 'CREATION_DATE', 'SHIPPED', 'DATA_ENTREGA']
 
     for col in date_cols:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce')
 
-    print("\n--- MEDIÇÃO DE PERFORMANCE ---")
+    # --- MÉTRICAS ---
 
-    # 1. Cálculo de Lead Time (Diferença entre pedido e envio em dias)
+    # 1. Lead Time
     if 'ORDER_DATE' in df.columns and 'SHIPPED' in df.columns:
-        df['LEAD_TIME_DAYS'] = (df['SHIPPED'] - df['ORDER_DATE']).dt.total_seconds() / (24 * 3600)
-        avg_lead_time = df['LEAD_TIME_DAYS'].mean()
-        print(f"Lead Time Médio (Pedido até Envio): {avg_lead_time:.2f} dias")
+        df['LEAD_TIME_DAYS'] = (
+            (df['SHIPPED'] - df['ORDER_DATE']).dt.total_seconds() / (24 * 3600)
+        )
+        st.metric("Lead Time Médio (dias)", f"{df['LEAD_TIME_DAYS'].mean():.2f}")
 
-    # 2. Análise de OTIF (On-Time In-Full)
-    # Se a coluna PERFORMANCE_OTIF já existir no seu arquivo, vamos usá-la
+    # 2. OTIF
     if 'PERFORMANCE_OTIF' in df.columns:
         otif_counts = df['PERFORMANCE_OTIF'].value_counts(normalize=True) * 100
-        print("\nDistribuição de Performance (OTIF):")
-        for status, percentage in otif_counts.items():
-            print(f"- {status}: {percentage:.2f}%")
 
-        # Cálculo da taxa de sucesso (On-Time)
+        st.subheader("Distribuição OTIF")
+        st.dataframe(otif_counts)
+
         if 'ON_TIME' in otif_counts:
-            print(f"\nTaxa de Sucesso (ON_TIME): {otif_counts['ON_TIME']:.2f}%")
+            st.metric("Taxa ON_TIME (%)", f"{otif_counts['ON_TIME']:.2f}")
+
     else:
-        print("\nAVISO: Coluna 'PERFORMANCE_OTIF' não encontrada para análise direta.")
+        st.warning("Coluna PERFORMANCE_OTIF não encontrada")
 
-    # 3. Tempo de Processamento Interno (Criação até Envio)
+    # 3. Tempo de Processamento
     if 'CREATION_DATE' in df.columns and 'SHIPPED' in df.columns:
-        df['WH_PROCESS_TIME_HOURS'] = (df['SHIPPED'] - df['CREATION_DATE']).dt.total_seconds() / 3600
-        avg_wh_time = df['WH_PROCESS_TIME_HOURS'].mean()
-        print(f"Tempo Médio de Processamento no Armazém: {avg_wh_time:.2f} horas")
-
-    # Salvar o resultado com as novas colunas calculadas
-    try:
-        df.to_csv(output_file, index=False)
-        print(f"\nProcessamento concluído. Arquivo com métricas salvo em: {output_file}")
-    except Exception as e:
-        print(f"Erro ao salvar o arquivo: {e}")
+        df['WH_PROCESS_TIME_HOURS'] = (
+            (df['SHIPPED'] - df['CREATION_DATE']).dt.total_seconds() / 3600
+        )
+        st.metric(
+            "Tempo Médio Armazém (horas)",
+            f"{df['WH_PROCESS_TIME_HOURS'].mean():.2f}"
+        )
 
     return df
 
 
-if __name__ == "__main__":
-    # IMPORTANTE: Use r"" para caminhos no Windows
-    input_path = r"C:\outbound\outbound.csv"
-    output_path = r"C:\outbound\performance_processed.csv"
+# --- UPLOAD ---
+uploaded_file = st.file_uploader("📂 Faça upload do CSV", type=["csv"])
 
+if uploaded_file is not None:
+    try:
+        df = pd.read_csv(uploaded_file, sep=",", quotechar='"')
 
-    if not os.path.exists(r"C:\outbound"):
-        input_path = "/home/ubuntu/upload/outbound.csv"
-        output_path = "/home/ubuntu/performance_processed_with_metrics.csv"
+        st.success("Arquivo carregado com sucesso!")
 
-    calculate_performance(input_path, output_path)
+        df = calculate_performance(df)
+
+        st.subheader("Preview dos dados")
+        st.dataframe(df.head())
+
+        # Download do arquivo processado
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            "⬇️ Baixar arquivo processado",
+            csv,
+            "performance_processada.csv",
+            "text/csv"
+        )
+
+    except Exception as e:
+        st.error(f"Erro ao processar arquivo: {e}")
