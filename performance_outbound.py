@@ -65,7 +65,7 @@ if __name__ == "__main__":
     input_path = r"C:\outbound\outbound.csv"
     output_path = r"C:\outbound\performance_processed.csv"
 
-    # Ajuste para o ambiente Manus (ignorar no seu PC)
+
     if not os.path.exists(r"C:\outbound"):
         input_path = "/home/ubuntu/upload/outbound.csv"
         output_path = "/home/ubuntu/performance_processed_with_metrics.csv"
