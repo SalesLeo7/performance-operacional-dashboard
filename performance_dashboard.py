@@ -1,197 +1,229 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import os
+from datetime import datetime
 
-# Configuração da página
+# ================= CONFIG =================
 st.set_page_config(
     page_title="Performance Outbound OTIF",
     page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# Título principal
 st.title("📊 Performance Outbound OTIF")
 st.markdown("---")
 
-
-# Função para carregar os dados
+# ================= LOAD DATA =================
 @st.cache_data
-def load_data(file_path):
-    """Carrega o arquivo CSV e processa as datas"""
-    # Carregar o CSV sem alterar os nomes das colunas inicialmente
-    df = pd.read_csv(file_path, sep=',', quotechar='"')
+def load_data(file):
+    df = pd.read_csv(file, sep=',', quotechar='"')
 
-    # ✅ CORREÇÃO: Tratar as colunas 'STATUS' e 'status' separadamente antes do .upper() geral
-    # O Streamlit/Pandas por padrão mantém a distinção de case se não for alterado.
-    # Vamos renomear explicitamente para evitar confusão posterior.
-    if 'Status' in df.columns:
-        df = df.rename(columns={'Status': 'STATUS_TRANSPORT'})
-    
-    # Agora padronizamos as OUTRAS colunas, mas mantendo a nossa nova STATUS_TRANSPORT
-    new_cols = []
+    # 🔥 PADRONIZAÇÃO DE COLUNAS (PRIMEIRO)
+    df.columns = (
+        df.columns
+        .str.strip()
+        .str.upper()
+        .str.replace(" ", "_")
+        .str.replace("-", "_")
+    )
+
+    # 🔥 PADRONIZAÇÃO DE VALORES (DEPOIS)
     for col in df.columns:
-        c = col.strip()
-        if c == 'STATUS_TRANSPORT':
-            new_cols.append(c)
-        else:
-            new_cols.append(c.upper())
-    
-    df.columns = new_cols
+        if any(k in col for k in ["OTIF", "STATUS", "PERFORMANCE"]):
+            df[col] = (
+                df[col]
+                .astype(str)
+                .str.strip()
+                .str.upper()
+                .str.replace(" ", "_")
+                .str.replace("-", "_")
+            )
 
-    # Remover duplicatas se houver (segurança)
+    # Remover duplicadas
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # Converter colunas de data
+    # Datas
     date_cols = ['ORDER_DATE', 'CREATION_DATE', 'SHIPPED', 'DATA_ENTREGA']
     for col in date_cols:
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce')
 
-    # Resetar o índice
-    df = df.reset_index(drop=True)
-
-    # Calcular Lead Time em dias
+    # Métricas
     if 'ORDER_DATE' in df.columns and 'SHIPPED' in df.columns:
-        df['LEAD_TIME_DAYS'] = (df['SHIPPED'] - df['ORDER_DATE']).dt.total_seconds() / (24 * 3600)
+        df['LEAD_TIME_DAYS'] = (
+            (df['SHIPPED'] - df['ORDER_DATE']).dt.total_seconds() / 86400
+        )
 
-    # Calcular tempo de processamento em horas
     if 'CREATION_DATE' in df.columns and 'SHIPPED' in df.columns:
-        df['WH_PROCESS_TIME_HOURS'] = (df['SHIPPED'] - df['CREATION_DATE']).dt.total_seconds() / 3600
+        df['WH_PROCESS_TIME_HOURS'] = (
+            (df['SHIPPED'] - df['CREATION_DATE']).dt.total_seconds() / 3600
+        )
 
     return df
 
-# Carregar dados
-try:
-    data_path = r"C:\outbound\outbound.csv"
-    if not os.path.exists(data_path):
-        data_path = "/home/ubuntu/upload/outbound.csv"
 
-    df = load_data(data_path)
-    st.success(f"✅ Dados carregados com sucesso! ({len(df)} registros)")
-except Exception as e:
-    st.error(f"❌ Erro ao carregar os dados: {e}")
+# ================= UPLOAD =================
+uploaded_file = st.sidebar.file_uploader("📂 Upload CSV", type=["csv"])
+
+if uploaded_file is None:
+    st.warning("Faça upload de um arquivo CSV")
     st.stop()
 
-# ============= SIDEBAR - FILTROS =============
+df = load_data(uploaded_file)
+
+st.success(f"✅ {len(df)} registros carregados")
+
+# ================= DETECÇÃO INTELIGENTE =================
+col_cliente = next((c for c in df.columns if "CLIENTE" in c), None)
+
+col_otif = None
+for c in df.columns:
+    if any(k in c for k in ["OTIF", "PERFORMANCE", "STATUS"]):
+        col_otif = c
+        break
+
+# ================= SIDEBAR =================
 st.sidebar.header("🔍 Filtros")
 
-# Filtro de Cliente
-if 'CLIENTE_ID' in df.columns:
-    clientes = sorted(df['CLIENTE_ID'].unique())
-    cliente_selecionado = st.sidebar.multiselect(
+# Cliente
+if col_cliente:
+    clientes = sorted(df[col_cliente].dropna().unique())
+    cliente_sel = st.sidebar.multiselect(
         "Cliente",
-        options=clientes,
-        default=clientes[:3] if len(clientes) > 0 else clientes
+        clientes,
+        default=clientes[:5]
     )
 else:
-    cliente_selecionado = []
+    cliente_sel = []
 
-# Filtro de Data
-col1, col2 = st.sidebar.columns(2)
-with col1:
-    data_inicio = st.date_input(
-        "Data Início",
-        value=df['ORDER_DATE'].min().date() if 'ORDER_DATE' in df.columns and not pd.isnull(df['ORDER_DATE'].min()) else datetime.now().date()
+# Data
+if 'ORDER_DATE' in df.columns:
+    data_inicio = st.sidebar.date_input(
+        "Data início",
+        value=df['ORDER_DATE'].min().date()
     )
-with col2:
-    data_fim = st.date_input(
-        "Data Fim",
-        value=df['ORDER_DATE'].max().date() if 'ORDER_DATE' in df.columns and not pd.isnull(df['ORDER_DATE'].max()) else datetime.now().date()
-    )
-
-# Filtro de Status Warehouse (Coluna 'STATUS' original)
-if 'STATUS' in df.columns:
-    status_options = sorted(df['STATUS'].dropna().unique())
-    status_selecionado = st.sidebar.multiselect(
-        "Status Warehouse",
-        options=status_options,
-        default=status_options
+    data_fim = st.sidebar.date_input(
+        "Data fim",
+        value=df['ORDER_DATE'].max().date()
     )
 else:
-    status_selecionado = []
+    data_inicio = data_fim = None
 
-# Filtro de Status Transport (Coluna 'status' que renomeamos para 'STATUS_TRANSPORT')
-if 'STATUS_TRANSPORT' in df.columns:
-    status_tr_vals = sorted(df['STATUS_TRANSPORT'].dropna().unique())
-    status_options_tr = st.sidebar.multiselect(
-        "Status Transport",
-        options=status_tr_vals,
-        default=status_tr_vals
-    )
-else:
-    status_options_tr = []
+# ================= FILTROS =================
+df_f = df.copy()
 
-# Filtro de Performance OTIF
-if 'PERFORMANCE_OTIF' in df.columns:
-    otif_options = sorted(df['PERFORMANCE_OTIF'].dropna().unique())
-    otif_selecionado = st.sidebar.multiselect(
-        "Performance OTIF",
-        options=otif_options,
-        default=otif_options
-    )
-else:
-    otif_selecionado = []
+if cliente_sel and col_cliente:
+    df_f = df_f[df_f[col_cliente].isin(cliente_sel)]
 
-# ============= APLICAR FILTROS =============
-df_filtrado = df.copy().reset_index(drop=True)
+if data_inicio and 'ORDER_DATE' in df_f.columns:
+    df_f = df_f[
+        (df_f['ORDER_DATE'].dt.date >= data_inicio) &
+        (df_f['ORDER_DATE'].dt.date <= data_fim)
+    ]
 
-# Filtro de cliente
-if cliente_selecionado and 'CLIENTE_ID' in df_filtrado.columns:
-    df_filtrado = df_filtrado[df_filtrado['CLIENTE_ID'].isin(cliente_selecionado)].reset_index(drop=True)
+# ================= KPIs =================
+st.subheader("📈 Indicadores")
 
-# Filtro de data
-if 'ORDER_DATE' in df_filtrado.columns:
-    df_filtrado = df_filtrado[
-        (df_filtrado['ORDER_DATE'].dt.date >= data_inicio) &
-        (df_filtrado['ORDER_DATE'].dt.date <= data_fim)
-    ].reset_index(drop=True)
+c1, c2, c3, c4 = st.columns(4)
 
-# Filtro de status Warehouse
-if status_selecionado and 'STATUS' in df_filtrado.columns:
-    df_filtrado = df_filtrado[df_filtrado['STATUS'].isin(status_selecionado)].reset_index(drop=True)
+with c1:
+    st.metric("Pedidos", len(df_f))
 
-# Filtro de Status Transport
-if status_options_tr and 'STATUS_TRANSPORT' in df_filtrado.columns:
-    df_filtrado = df_filtrado[df_filtrado['STATUS_TRANSPORT'].isin(status_options_tr)].reset_index(drop=True)
+with c2:
+    if col_otif and len(df_f) > 0:
 
-# Filtro de OTIF
-if otif_selecionado and 'PERFORMANCE_OTIF' in df_filtrado.columns:
-    df_filtrado = df_filtrado[df_filtrado['PERFORMANCE_OTIF'].isin(otif_selecionado)].reset_index(drop=True)
+        # 🔥
+        on_time = df_f[col_otif].str.contains("ON_TIME", na=False).sum()
+        total = len(df_f)
 
+        otif_rate = (on_time / total) * 100 if total > 0 else 0
 
-# ============= MÉTRICAS (KPIs) =============
-st.subheader("📈 Indicadores de Performance")
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    total_pedidos = len(df_filtrado)
-    st.metric("Total de Pedidos", f"{total_pedidos:,}")
-
-with col2:
-    if 'PERFORMANCE_OTIF' in df_filtrado.columns:
-        otif_rate = (df_filtrado['PERFORMANCE_OTIF'] == 'ON_TIME').sum() / len(df_filtrado) * 100 if len(
-            df_filtrado) > 0 else 0
         st.metric("Taxa OTIF", f"{otif_rate:.1f}%")
+
     else:
         st.metric("Taxa OTIF", "N/A")
 
-with col3:
-    if 'LEAD_TIME_DAYS' in df_filtrado.columns:
-        lead_time_avg = df_filtrado['LEAD_TIME_DAYS'].mean()
-        st.metric("Lead Time Médio", f"{lead_time_avg:.1f} dias")
+with c3:
+    if 'LEAD_TIME_DAYS' in df_f.columns:
+        st.metric("Lead Time", f"{df_f['LEAD_TIME_DAYS'].mean():.1f} dias")
     else:
-        st.metric("Lead Time Médio", "N/A")
+        st.metric("Lead Time", "N/A")
 
-with col4:
-    if 'WH_PROCESS_TIME_HOURS' in df_filtrado.columns:
-        wh_time_avg = df_filtrado['WH_PROCESS_TIME_HOURS'].mean()
-        st.metric("Tempo WH Médio", f"{wh_time_avg:.1f}h")
+with c4:
+    if 'WH_PROCESS_TIME_HOURS' in df_f.columns:
+        st.metric("WH Time", f"{df_f['WH_PROCESS_TIME_HOURS'].mean():.1f}h")
     else:
-        st.metric("Tempo WH Médio", "N/A")
+        st.metric("WH Time", "N/A")
 
 st.markdown("---")
+
+# ================= GRÁFICOS =================
+
+# OTIF por dia
+if col_otif and 'ORDER_DATE' in df_f.columns:
+    df_otif = df_f.copy()
+    df_otif['DATA'] = df_otif['ORDER_DATE'].dt.date
+
+    otif_daily = df_otif.groupby('DATA')[col_otif].apply(
+        lambda x: x.str.contains("ON", na=False).mean() * 100
+    ).reset_index()
+
+    fig_otif = px.line(
+        otif_daily,
+        x='DATA',
+        y=col_otif,
+        title="📈 OTIF ao longo do tempo"
+    )
+
+    st.plotly_chart(fig_otif, use_container_width=True)
+
+# Lead Time por cliente
+if col_cliente and 'LEAD_TIME_DAYS' in df_f.columns:
+    ranking = (
+        df_f.groupby(col_cliente)['LEAD_TIME_DAYS']
+        .mean()
+        .sort_values()
+        .reset_index()
+        .head(10)
+    )
+
+    fig_rank = px.bar(
+        ranking,
+        x='LEAD_TIME_DAYS',
+        y=col_cliente,
+        orientation='h',
+        title="🏆 Top 10 Clientes (Menor Lead Time)"
+    )
+
+    st.plotly_chart(fig_rank, use_container_width=True)
+
+# ================= HEATMAP =================
+st.subheader("🔥 OTIF por Cliente (Heatmap)")
+
+if col_cliente and col_otif and 'ORDER_DATE' in df_f.columns:
+
+    df_heat = df_f.copy()
+    df_heat['MES'] = df_heat['ORDER_DATE'].dt.to_period('M').astype(str)
+
+    heatmap_data = df_heat.groupby([col_cliente, 'MES'])[col_otif].apply(
+        lambda x: x.str.contains("ON", na=False).mean() * 100
+    ).reset_index()
+
+    heatmap_pivot = heatmap_data.pivot(
+        index=col_cliente,
+        columns='MES',
+        values=col_otif
+    )
+
+    fig_heatmap = px.imshow(
+        heatmap_pivot,
+        aspect="auto",
+        color_continuous_scale="RdYlGn",
+        title="OTIF (%) por Cliente e Mês"
+    )
+
+    st.plotly_chart(fig_heatmap, use_container_width=True)
+
+# ================= TABELA =================
+st.subheader("📋 Dados")
+st.dataframe(df_f)
