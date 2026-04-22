@@ -18,7 +18,7 @@ st.markdown("---")
 def load_data(file):
     df = pd.read_csv(file, sep=',', quotechar='"')
 
-    # Padronização forte de colunas
+    # 🔥 PADRONIZAÇÃO DE COLUNAS (PRIMEIRO)
     df.columns = (
         df.columns
         .str.strip()
@@ -26,6 +26,18 @@ def load_data(file):
         .str.replace(" ", "_")
         .str.replace("-", "_")
     )
+
+    # 🔥 PADRONIZAÇÃO DE VALORES (DEPOIS)
+    for col in df.columns:
+        if any(k in col for k in ["OTIF", "STATUS", "PERFORMANCE"]):
+            df[col] = (
+                df[col]
+                .astype(str)
+                .str.strip()
+                .str.upper()
+                .str.replace(" ", "_")
+                .str.replace("-", "_")
+            )
 
     # Remover duplicadas
     df = df.loc[:, ~df.columns.duplicated()]
@@ -63,7 +75,12 @@ st.success(f"✅ {len(df)} registros carregados")
 
 # ================= DETECÇÃO INTELIGENTE =================
 col_cliente = next((c for c in df.columns if "CLIENTE" in c), None)
-col_otif = next((c for c in df.columns if "OTIF" in c), None)
+
+col_otif = None
+for c in df.columns:
+    if any(k in c for k in ["OTIF", "PERFORMANCE", "STATUS"]):
+        col_otif = c
+        break
 
 # ================= SIDEBAR =================
 st.sidebar.header("🔍 Filtros")
@@ -113,11 +130,18 @@ with c1:
     st.metric("Pedidos", len(df_f))
 
 with c2:
-    if col_otif:
-        otif_rate = (df_f[col_otif] == 'ON_TIME').mean() * 100
-        st.metric("OTIF %", f"{otif_rate:.1f}%")
+    if col_otif and len(df_f) > 0:
+
+        # 🔥
+        on_time = df_f[col_otif].str.contains("ON_TIME", na=False).sum()
+        total = len(df_f)
+
+        otif_rate = (on_time / total) * 100 if total > 0 else 0
+
+        st.metric("Taxa OTIF", f"{otif_rate:.1f}%")
+
     else:
-        st.metric("OTIF %", "N/A")
+        st.metric("Taxa OTIF", "N/A")
 
 with c3:
     if 'LEAD_TIME_DAYS' in df_f.columns:
@@ -141,7 +165,7 @@ if col_otif and 'ORDER_DATE' in df_f.columns:
     df_otif['DATA'] = df_otif['ORDER_DATE'].dt.date
 
     otif_daily = df_otif.groupby('DATA')[col_otif].apply(
-        lambda x: (x == 'ON_TIME').mean() * 100
+        lambda x: x.str.contains("ON", na=False).mean() * 100
     ).reset_index()
 
     fig_otif = px.line(
@@ -173,7 +197,33 @@ if col_cliente and 'LEAD_TIME_DAYS' in df_f.columns:
 
     st.plotly_chart(fig_rank, use_container_width=True)
 
+# ================= HEATMAP =================
+st.subheader("🔥 OTIF por Cliente (Heatmap)")
+
+if col_cliente and col_otif and 'ORDER_DATE' in df_f.columns:
+
+    df_heat = df_f.copy()
+    df_heat['MES'] = df_heat['ORDER_DATE'].dt.to_period('M').astype(str)
+
+    heatmap_data = df_heat.groupby([col_cliente, 'MES'])[col_otif].apply(
+        lambda x: x.str.contains("ON", na=False).mean() * 100
+    ).reset_index()
+
+    heatmap_pivot = heatmap_data.pivot(
+        index=col_cliente,
+        columns='MES',
+        values=col_otif
+    )
+
+    fig_heatmap = px.imshow(
+        heatmap_pivot,
+        aspect="auto",
+        color_continuous_scale="RdYlGn",
+        title="OTIF (%) por Cliente e Mês"
+    )
+
+    st.plotly_chart(fig_heatmap, use_container_width=True)
+
 # ================= TABELA =================
 st.subheader("📋 Dados")
 st.dataframe(df_f)
-
