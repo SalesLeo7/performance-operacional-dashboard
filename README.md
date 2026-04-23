@@ -20,3 +20,11 @@ Este projeto tem como objetivo acomanhar a performance dos pedidos, estou medind
 - Python
 - Streamlit
 - Knime
+- Numpy
+- Pandas
+
+## Metodo de ultilização do KNIME
+
+O Arquivo (CSV) ultilizado no processo do projeto é estruturado usando a ferramenta KNIME, que concatena diversas fontes de dados e realiza as metricas usadas no projeto como a PERFORMANCE OTIF
+
+
